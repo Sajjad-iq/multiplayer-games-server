@@ -14,7 +14,8 @@ const MongoSanitize = require("express-mongo-sanitize")
 const session = require("express-session")
 const MongoStore = require('connect-mongo');
 const cookieParser = require("cookie-parser")
-const { Server } = require("socket.io"); s
+const { Server } = require("socket.io");
+const { rooms } = require("utils/rooms");
 
 
 // app extensions
@@ -80,22 +81,26 @@ const io = new Server(server, {
 
 const gameState = {
     players: {},
+    rooms: rooms
 };
 
 io.on('connection', (socket) => {
+
+    socket.emit('gameState', gameState);
+
     socket.on('join', (data) => {
         gameState.players[socket.id] = {
             id: socket.id,
-            name: data.playerName, // Fix: Use data.playerName instead of undefined variable playerName
+            name: data.PlayerName, // Fix: Use data.playerName instead of undefined variable playerName
             room: data.room,
             direction: "left",
             x: 0,
             y: 0,
         };
 
+        gameState.rooms[data.room].players += 1
         socket.join(data.room); // Join the specified room
-        socket.broadcast.to(data.room).emit('playerJoined', gameState.players[socket.id]);
-        socket.emit('gameState', gameState);
+        socket.broadcast.to(data.room).emit('playerJoined', data.PlayerName);
     });
 
     socket.on('move', (coordinates) => {
@@ -107,7 +112,7 @@ io.on('connection', (socket) => {
                 playerId: socket.id,
                 x: coordinates.x,
                 y: coordinates.y,
-                direction: coordinates.directions
+                direction: coordinates.mouseDirection
             });
         }
     });
@@ -121,14 +126,22 @@ io.on('connection', (socket) => {
                 playerId: socket.id,
                 x: coordinates.x,
                 y: coordinates.y,
-                direction: coordinates.directions
+                direction: coordinates.mouseDirection
             });
+        }
+    });
+
+    socket.on('win', (playerId) => {
+        const player = gameState.players[playerId];
+        if (player) {
+            io.to(player.room).emit('winnerPlayer', playerId);
         }
     });
 
     socket.on('disconnect', () => {
         const player = gameState.players[socket.id];
         if (player) {
+            gameState.rooms[player.room].players -= 1
             delete gameState.players[socket.id];
             socket.broadcast.to(player.room).emit('playerLeft', socket.id);
         }
@@ -139,7 +152,7 @@ io.on('connection', (socket) => {
 
 // app routes
 const SignUpRoutes = require('./Routes/SignUp')
-const SignInRoutes = require('./Routes/SignIn')
+const SignInRoutes = require('./Routes/SignIn');
 
 app.use("/api/SignUp", SignUpRoutes)
 app.use("/api/SignIn", SignInRoutes)
